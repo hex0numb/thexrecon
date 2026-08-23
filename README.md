@@ -9,7 +9,7 @@ A high-performance Go tool for automating subdomain enumeration across multiple 
   - Subdomain.center API
   - Subfinder
   - Chaos
-  - Certificate Transparency logs (crt.sh)
+  - Certificate Transparency logs (crt.name)
   - GetAllUrls (gau)
   - Wayback Machine
   - Assetfinder
@@ -169,7 +169,7 @@ You can easily extend the tool by adding new modules in the `main.go` file.
 
 ## Notes
 
-- Some functions (like `CrtSh`) require network access to external services
+- Some functions (like `CrtName`) require network access to external services
 - The script includes error handling to prevent failures if a particular source is unavailable
 - Respect rate limits of the services you're querying to avoid IP blocks
 

@@ -7,13 +7,13 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
 	"regexp"
-	"log"
 	"sort"
 	"strings"
 	"sync"
@@ -98,12 +98,12 @@ func (r *Result) AddAll(subdomains []string) {
 func (r *Result) GetAll() []string {
 	r.Lock()
 	defer r.Unlock()
-	
+
 	var result []string
 	for sub := range r.Subdomains {
 		result = append(result, sub)
 	}
-	
+
 	sort.Strings(result)
 	return result
 }
@@ -125,38 +125,38 @@ func printLog(format string, args ...interface{}) {
 // AbuseIPDB fetches WHOIS information from AbuseIPDB
 func AbuseIPDB(domain string, session string, result *Result) {
 	printLog("[+] Running AbuseIPDB for %s", domain)
-	
+
 	// Skip if no session is configured
 	if session == "" {
 		printLog("[!] Skipping AbuseIPDB: No session configured")
 		return
 	}
-	
+
 	url := fmt.Sprintf("https://www.abuseipdb.com/whois/%s", domain)
 	client := &http.Client{}
-	
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		printLog("[!] Error creating AbuseIPDB request: %s", err)
 		return
 	}
-	
+
 	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36")
 	req.AddCookie(&http.Cookie{Name: "abuseipdb_session", Value: session})
-	
+
 	resp, err := client.Do(req)
 	if err != nil {
 		printLog("[!] Error making AbuseIPDB request: %s", err)
 		return
 	}
 	defer resp.Body.Close()
-	
+
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
 	if err != nil {
 		printLog("[!] Error parsing AbuseIPDB response: %s", err)
 		return
 	}
-	
+
 	var subdomains []string
 	doc.Find("li").Each(func(i int, s *goquery.Selection) {
 		text := strings.TrimSpace(s.Text())
@@ -164,14 +164,14 @@ func AbuseIPDB(domain string, session string, result *Result) {
 			subdomains = append(subdomains, text+"."+domain)
 		}
 	})
-	
+
 	result.AddAll(subdomains)
 }
 
 // SubdomainCenter fetches subdomains from Subdomain Center API
 func SubdomainCenter(domain string, result *Result) {
 	printLog("[+] Running Subdomain Center for %s", domain)
-	
+
 	url := fmt.Sprintf("https://api.subdomain.center/?domain=%s", domain)
 	resp, err := http.Get(url)
 	if err != nil {
@@ -179,44 +179,45 @@ func SubdomainCenter(domain string, result *Result) {
 		return
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		printLog("[!] Subdomain Center returned non-OK status: %d", resp.StatusCode)
 		return
 	}
-	
+
 	var subdomains []string
 	if err := json.NewDecoder(resp.Body).Decode(&subdomains); err != nil {
 		printLog("[!] Error decoding Subdomain Center response: %s", err)
 		return
 	}
-	
+
 	result.AddAll(subdomains)
 }
 
-// CrtSh fetches subdomains from crt.sh
-func CrtSh(domain string, result *Result) {
-	printLog("[+] Running crt.sh for %s", domain)
-	
-	url := fmt.Sprintf("https://crt.sh/?q=%%25.%s&output=json", domain)
+// CrtName fetches subdomains from crt.name
+func CrtName(domain string, result *Result) {
+	printLog("[+] Running crt.name for %s", domain)
+
+	url := fmt.Sprintf("https://crt.name/v1/search?apex=%s&format=json", domain)
 	resp, err := http.Get(url)
 	if err != nil {
-		printLog("[!] Error making crt.sh request: %s", err)
+		printLog("[!] Error making crt.name request: %s", err)
 		return
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
-		printLog("[!] crt.sh returned non-OK status: %d", resp.StatusCode)
+		printLog("[!] crt.name returned non-OK status: %d", resp.StatusCode)
 		return
 	}
-	
+
 	var data []map[string]interface{}
+
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		printLog("[!] Error decoding crt.sh response: %s", err)
+		printLog("[!] Error decoding crt.name response: %s", err)
 		return
 	}
-	
+
 	var subdomains []string
 	for _, entry := range data {
 		if nameValue, ok := entry["name_value"].(string); ok {
@@ -224,21 +225,21 @@ func CrtSh(domain string, result *Result) {
 			subdomains = append(subdomains, subdomain)
 		}
 	}
-	
+
 	result.AddAll(subdomains)
 }
 
 // RunSubfinder runs subfinder for subdomain enumeration
 func RunSubfinder(domain string, result *Result) {
 	printLog("[+] Running Subfinder for %s", domain)
-	
+
 	cmd := exec.Command("subfinder", "-d", domain, "-all", "-silent")
 	output, err := cmd.Output()
 	if err != nil {
 		printLog("[!] Error running Subfinder: %s", err)
 		return
 	}
-	
+
 	lines := strings.Split(string(output), "\n")
 	var subdomains []string
 	for _, line := range lines {
@@ -246,21 +247,21 @@ func RunSubfinder(domain string, result *Result) {
 			subdomains = append(subdomains, line)
 		}
 	}
-	
+
 	result.AddAll(subdomains)
 }
 
 // RunChaos runs Chaos for subdomain enumeration
 func RunChaos(domain string, result *Result) {
 	printLog("[+] Running Chaos for %s", domain)
-	
+
 	cmd := exec.Command("chaos", "-d", domain, "-silent")
 	output, err := cmd.Output()
 	if err != nil {
 		printLog("[!] Error running Chaos: %s", err)
 		return
 	}
-	
+
 	lines := strings.Split(string(output), "\n")
 	var subdomains []string
 	for _, line := range lines {
@@ -268,21 +269,21 @@ func RunChaos(domain string, result *Result) {
 			subdomains = append(subdomains, line)
 		}
 	}
-	
+
 	result.AddAll(subdomains)
 }
 
 // RunGAU runs GAU for subdomain discovery
 func RunGAU(domain string, result *Result) {
 	printLog("[+] Running GAU for %s", domain)
-	
+
 	cmd := exec.Command("gau", domain, "--threads", "10", "--subs")
 	output, err := cmd.Output()
 	if err != nil {
 		printLog("[!] Error running GAU: %s", err)
 		return
 	}
-	
+
 	lines := strings.Split(string(output), "\n")
 	var subdomains []string
 	for _, line := range lines {
@@ -290,21 +291,21 @@ func RunGAU(domain string, result *Result) {
 			subdomains = append(subdomains, line)
 		}
 	}
-	
+
 	result.AddAll(subdomains)
 }
 
 // RunWayback fetches subdomains from the Wayback Machine
 func RunWayback(domain string, result *Result) {
 	printLog("[+] Running Wayback Machine for %s", domain)
-	
+
 	cmd := exec.Command("curl", "-s", fmt.Sprintf("https://web.archive.org/cdx/search/cdx?url=*%s/*&fl=original&collapse=urlkey", domain))
 	output, err := cmd.Output()
 	if err != nil {
 		printLog("[!] Error running Wayback Machine: %s", err)
 		return
 	}
-	
+
 	lines := strings.Split(string(output), "\n")
 	var subdomains []string
 	for _, line := range lines {
@@ -312,21 +313,21 @@ func RunWayback(domain string, result *Result) {
 			subdomains = append(subdomains, line)
 		}
 	}
-	
+
 	result.AddAll(subdomains)
 }
 
 // RunAssetfinder runs assetfinder for subdomain enumeration
 func RunAssetfinder(domain string, result *Result) {
 	printLog("[+] Running Assetfinder for %s", domain)
-	
+
 	cmd := exec.Command("assetfinder", domain)
 	output, err := cmd.Output()
 	if err != nil {
 		printLog("[!] Error running Assetfinder: %s", err)
 		return
 	}
-	
+
 	lines := strings.Split(string(output), "\n")
 	var subdomains []string
 	for _, line := range lines {
@@ -334,21 +335,21 @@ func RunAssetfinder(domain string, result *Result) {
 			subdomains = append(subdomains, line)
 		}
 	}
-	
+
 	result.AddAll(subdomains)
 }
 
 // RunAmass runs Amass for subdomain enumeration
 func RunAmass(domain string, result *Result) {
 	printLog("[+] Running Amass for %s", domain)
-	
+
 	cmd := exec.Command("amass", "enum", "-active", "-d", domain)
 	output, err := cmd.Output()
 	if err != nil {
 		printLog("[!] Error running Amass: %s", err)
 		return
 	}
-	
+
 	lines := strings.Split(string(output), "\n")
 	var subdomains []string
 	for _, line := range lines {
@@ -356,7 +357,7 @@ func RunAmass(domain string, result *Result) {
 			subdomains = append(subdomains, line)
 		}
 	}
-	
+
 	result.AddAll(subdomains)
 }
 
@@ -366,62 +367,62 @@ const Version = "1.0.2"
 // ProcessDomain runs all subdomain enumeration methods on a domain
 func ProcessDomain(domain string) []string {
 	printLog("[*] Processing domain: %s", domain)
-	
+
 	result := NewResult()
 	var wg sync.WaitGroup
-	
+
 	wg.Add(9)
-	
+
 	go func() {
 		defer wg.Done()
 		AbuseIPDB(domain, config.AbuseIPDBSession, result)
 	}()
-	
+
 	go func() {
 		defer wg.Done()
 		SubdomainCenter(domain, result)
 	}()
-	
+
 	go func() {
 		defer wg.Done()
 		RunSubfinder(domain, result)
 	}()
-	
+
 	go func() {
 		defer wg.Done()
 		RunChaos(domain, result)
 	}()
-	
+
 	go func() {
 		defer wg.Done()
-		CrtSh(domain, result)
+		CrtName(domain, result)
 	}()
-	
+
 	go func() {
 		defer wg.Done()
 		RunGAU(domain, result)
 	}()
-	
+
 	go func() {
 		defer wg.Done()
 		RunWayback(domain, result)
 	}()
-	
+
 	go func() {
 		defer wg.Done()
 		RunAssetfinder(domain, result)
 	}()
-	
+
 	go func() {
 		defer wg.Done()
 		RunAmass(domain, result)
 	}()
-	
+
 	wg.Wait()
-	
+
 	// Regex for filtering valid subdomains
 	subdomainRegex := regexp.MustCompile(`^([a-zA-Z0-9-]+\.){2,}[a-zA-Z]{2,}$`)
-	
+
 	cleanResults := NewResult()
 	for sub := range result.Subdomains {
 		try := func(subdomain string) {
@@ -433,15 +434,15 @@ func ProcessDomain(domain string) []string {
 			} else {
 				hostname = parts[0]
 			}
-			
+
 			parts = strings.Split(hostname, "/")
 			hostname = parts[0]
-			
+
 			if subdomainRegex.MatchString(hostname) {
 				cleanResults.Add(hostname)
 			}
 		}
-		
+
 		// Use a function to handle potential panics
 		func() {
 			defer func() {
@@ -452,7 +453,7 @@ func ProcessDomain(domain string) []string {
 			try(sub)
 		}()
 	}
-	
+
 	printLog("[+] Found %d clean subdomains for %s", cleanResults.Size(), domain)
 	return cleanResults.GetAll()
 }
@@ -467,7 +468,7 @@ func CheckDependencies() bool {
 		"assetfinder",
 		"amass",
 	}
-	
+
 	allInstalled := true
 	for _, dep := range dependencies {
 		cmd := exec.Command("which", dep)
@@ -478,7 +479,7 @@ func CheckDependencies() bool {
 			printLog("[+] Found dependency: %s", dep)
 		}
 	}
-	
+
 	return allInstalled
 }
 
@@ -502,10 +503,10 @@ func PrintBanner() {
 func main() {
 	// Configure logging
 	log.SetOutput(ioutil.Discard) // Disable default logging
-	
+
 	// Load configuration
 	config = LoadConfig()
-	
+
 	// Define command-line flags
 	singleDomain := flag.String("u", "", "Single domain to process")
 	domainListFile := flag.String("l", "", "Path to a file containing a list of domains")
@@ -513,18 +514,18 @@ func main() {
 	checkDeps := flag.Bool("c", false, "Check dependencies and exit")
 	showVersion := flag.Bool("v", false, "Show version information")
 	silentMode := flag.Bool("silent", false, "Silent mode - only output subdomains, no banner or logs")
-	
+
 	// Parse command-line flags
 	flag.Parse()
-	
+
 	// Set silent mode global variable
 	silent = *silentMode
-	
+
 	// Show banner if not in silent mode
 	if !silent {
 		PrintBanner()
 	}
-	
+
 	// Show version if requested
 	if *showVersion {
 		if silent {
@@ -534,7 +535,7 @@ func main() {
 		}
 		return
 	}
-	
+
 	// Check dependencies if requested
 	if *checkDeps {
 		if CheckDependencies() {
@@ -544,27 +545,27 @@ func main() {
 		}
 		return
 	}
-	
+
 	// Validate input flags
 	if *singleDomain == "" && *domainListFile == "" {
 		fmt.Println("Error: Either -u or -l is required")
 		flag.Usage()
 		os.Exit(1)
 	}
-	
+
 	if *singleDomain != "" && *domainListFile != "" {
 		fmt.Println("Error: Cannot use both -u and -l at the same time")
 		flag.Usage()
 		os.Exit(1)
 	}
-	
+
 	var domains []string
-	
+
 	// Process single domain
 	if *singleDomain != "" {
 		domains = append(domains, *singleDomain)
 	}
-	
+
 	// Process domain list from file
 	if *domainListFile != "" {
 		file, err := os.Open(*domainListFile)
@@ -573,7 +574,7 @@ func main() {
 			os.Exit(1)
 		}
 		defer file.Close()
-		
+
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
 			domain := strings.TrimSpace(scanner.Text())
@@ -581,20 +582,20 @@ func main() {
 				domains = append(domains, domain)
 			}
 		}
-		
+
 		if err := scanner.Err(); err != nil {
 			fmt.Printf("Error reading domain list file: %s\n", err)
 			os.Exit(1)
 		}
 	}
-	
+
 	// Process all domains
 	var allResults []string
 	for _, domain := range domains {
 		results := ProcessDomain(domain)
 		allResults = append(allResults, results...)
 	}
-	
+
 	// Output results
 	if *outputFile != "" {
 		err := ioutil.WriteFile(*outputFile, []byte(strings.Join(allResults, "\n")), 0644)
